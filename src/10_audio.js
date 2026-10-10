@@ -194,6 +194,64 @@ function alignWordTimes(ref, heard) {
   return mapped;
 }
 
+/* Find each supplied lyric line as a contiguous phrase in the word-timestamp transcript. A global
+   edit-distance path tends to spend several weak, isolated matches across the whole song when
+   Whisper misses sung words. That can give a full line a timestamp based on one unrelated word. */
+function alignLyricLinesToHeard(lines, heard, lang) {
+  const result = new Array(lines.length).fill(null);
+  let cursor = 0, lastStart = -1;
+  for (let li = 0; li < lines.length; li++) {
+    const tokens = alignTokens(lines[li].text || '', lang).map(text => ({ text, key: alignNorm(text, lang) })).filter(x => x.key);
+    if (!tokens.length) continue;
+    const minHits = tokens.length <= 2 ? tokens.length : Math.max(3, Math.ceil(tokens.length * 0.45));
+    let best = null;
+    // Bound the search after the preceding matched line, with only a small tolerance for ASR words
+    // omitted near a chunk boundary. The monotonic cursor prevents repeated phrases jumping backward.
+    const from = Math.max(0, cursor - 2), to = Math.min(heard.length, cursor + Math.max(120, tokens.length * 24));
+    const rows = tokens.length + 1, cols = to - from + 1;
+    const back = new Uint8Array(rows * cols), score = new Float32Array(rows * cols);
+    const cell = (i, j) => i * cols + j, INS = 0.72, DEL = 0.88;
+    for (let j = 1; j < cols; j++) { score[cell(0,j)] = score[cell(0,j-1)] + INS; back[cell(0,j)] = 2; }
+    for (let i = 1; i < rows; i++) {
+      score[cell(i,0)] = score[cell(i-1,0)] + DEL; back[cell(i,0)] = 1;
+      for (let j = 1; j < cols; j++) {
+        const sub = score[cell(i-1,j-1)] + matchCost(tokens[i-1].key, heard[from+j-1].key);
+        const del = score[cell(i-1,j)] + DEL, ins = score[cell(i,j-1)] + INS, at = cell(i,j);
+        if (sub <= del && sub <= ins) { score[at] = sub; back[at] = 0; }
+        else if (del <= ins) { score[at] = del; back[at] = 1; }
+        else { score[at] = ins; back[at] = 2; }
+      }
+    }
+    // Trace candidate phrase alignments ending at each transcript token, retaining a contiguous
+    // window around the matched words so the match cannot drift to unrelated parts of the song.
+    for (let end = 1; end < cols; end++) {
+      let i = tokens.length, j = end, first = end, hits = [], exact = 0;
+      while (i > 0 && j > 0) {
+        const dir = back[cell(i,j)];
+        if (dir === 0) {
+          const heardToken = heard[from+j-1], cost = matchCost(tokens[i-1].key, heardToken.key);
+          if (cost <= 0.95) { hits.push(heardToken); if (tokens[i-1].key === heardToken.key) exact++; }
+          i--; j--; first = j;
+        } else if (dir === 1) i--;
+        else j--;
+      }
+      if (i !== 0 || !hits.length) continue;
+      const len = end - first, coverage = hits.length / tokens.length, precision = hits.length / Math.max(1, len);
+      if (hits.length < minHits || precision < 0.35) continue;
+      const quality = coverage * 0.6 + precision * 0.25 + (exact / hits.length) * 0.15;
+      if (!best || quality > best.quality) best = { start: from+first, len, hits, quality, coverage, precision };
+    }
+    // Lyrics that only match a common one-word fragment are left for manual review.
+    if (!best || best.coverage < (tokens.length <= 2 ? 0.85 : 0.45) || best.precision < 0.35) continue;
+    const start = Math.min(...best.hits.map(x => x.start)), end = Math.max(...best.hits.map(x => x.end));
+    if (start < lastStart - 0.8) continue;
+    result[li] = { start, end, confidence: Math.min(1, best.coverage * best.precision), coverage: best.coverage };
+    lastStart = start;
+    cursor = Math.max(cursor, best.start + best.len - 2);
+  }
+  return result;
+}
+
 J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
   if (!buffer || !lines || !lines.length) throw new Error('曲と歌詞を読み込んでください');
   if (onProgress) onProgress({ phase: 'model' });
@@ -227,19 +285,8 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
     for (const token of alignTokens(w.text, lang)) recognized.push({ text: token, key: alignNorm(token, lang), start: a, end: b, score: Number(w.score) || 0 });
   }
   if (onProgress) onProgress({ phase: 'align', progress: 1 });
-  const ref = [], ranges = [];
-  for (const line of lines) {
-    const tokens = alignTokens(line.text || '', lang), from = ref.length;
-    for (const text of tokens) ref.push({ text, key: alignNorm(text, lang), line: line.index });
-    ranges.push({ from, to: ref.length });
-  }
   const heard = recognized.filter(x => x.key);
-  const matched = alignWordTimes(ref, heard);
-  const spans = ranges.map(({ from, to }) => {
-    const hit = matched.slice(from, to).filter(Boolean);
-    if (!hit.length) return null;
-    return { start: Math.min(...hit.map(x => x.start)), end: Math.max(...hit.map(x => x.end)), confidence: hit.length / Math.max(1, to - from) };
-  });
+  const spans = alignLyricLinesToHeard(lines, heard, lang);
   // Never invent times for lines the ASR could not anchor. Leave those lines intact for manual review.
   if (!spans.some(Boolean)) throw new Error('音声と歌詞を照合できませんでした。歌詞の言語設定を確認してください。');
   return spans.map((s, i) => {
