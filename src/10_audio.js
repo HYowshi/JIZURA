@@ -123,7 +123,7 @@ async function whisperAudio(buffer) {
   }
   const source = ctx.createBufferSource(); source.buffer = mono; source.connect(ctx.destination); source.start();
   const resampled = await ctx.startRendering();
-  return { audio: resampled.getChannelData(0), sampling_rate: sr };
+  return resampled.getChannelData(0);
 }
 
 const alignNorm = (s, lang) => {
@@ -204,7 +204,7 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
   let payload;
   try {
     payload = await transcriber(audio, {
-      language, task: 'transcribe', return_timestamps: 'word',
+      sampling_rate: 16000, language, task: 'transcribe', return_timestamps: 'word',
       chunk_length_s: 30, stride_length_s: 5,
     });
   } catch (e) {
@@ -214,7 +214,7 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
       asrPipelineDevice = null;
       const cpuTranscriber = await loadAsrPipeline(onProgress);
       payload = await cpuTranscriber(audio, {
-        language, task: 'transcribe', return_timestamps: 'word',
+        sampling_rate: 16000, language, task: 'transcribe', return_timestamps: 'word',
         chunk_length_s: 30, stride_length_s: 5,
       });
     } else throw e;
