@@ -500,7 +500,12 @@ button.small.primary { padding: 4px 12px; }
       <button id="btnTour" class="ghost tour-btn" title="Hướng dẫn nhanh về chế độ đơn giản" aria-label="Hướng dẫn sử dụng">？</button>
     </div>
     <label class="lang-switch"><span class="sr-only">Ngôn ngữ</span><select aria-label="Ngôn ngữ" onchange="if(this.value)location.href=this.value"><option value="../index.html" lang="ja">日本語</option><option value="../en/index.html" lang="en">English</option><option value="../zh-hant/index.html" lang="zh-Hant">繁體中文</option><option value="../zh-hans/index.html" lang="zh-Hans">简体中文</option><option value="../ko/index.html" lang="ko">한국어</option><option value="../id/index.html" lang="id-ID">Bahasa Indonesia</option><option value="../vi/index.html" lang="vi" selected>Tiếng Việt</option></select></label>
-    <div class="acts">
+    <div class="img-upload-panel" style="margin: 12px 0; display: flex; gap: 12px; align-items: center;">
+  <label class="btn" for="imgBgFile" style="cursor:pointer; background:#4a90e2; color:#fff; padding:6px 12px; border-radius:4px;">⬆️ Background Image<input type="file" id="imgBgFile" accept="image/*" style="display:none;"></label>
+  <label class="btn" for="imgCenterFile" style="cursor:pointer; background:#4a90e2; color:#fff; padding:6px 12px; border-radius:4px;">🎭 Center Image<input type="file" id="imgCenterFile" accept="image/*" style="display:none;"></label>
+  <label class="btn" for="imgEffectFiles" style="cursor:pointer; background:#4a90e2; color:#fff; padding:6px 12px; border-radius:4px;">✨ Effect Images<input type="file" id="imgEffectFiles" accept="image/*" multiple style="display:none;"></label>
+</div>
+<div class="acts">
       <label class="file" title="Mở dự án đã lưu (.json)">Mở dự án<input id="fileProject" type="file" accept=".json,application/json"></label>
       <button id="btnSave" title="Lưu dự án dưới dạng .json">Lưu</button>
       <button id="btnAE" title="Xuất dữ liệu dự án sang bảng After Effects">Xuất cho AE</button>

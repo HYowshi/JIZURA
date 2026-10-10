@@ -1659,6 +1659,40 @@ function syncImagesUI() {
 
 /* ---------------- wiring ---------------- */
 function bind() {
+  // Existing bindings (truncated for brevity)
+  // ... existing code up to line 1664 ...
+  // ---------- image upload handling ----------
+  const imgBgInput = $('imgBgFile');
+  if (imgBgInput) {
+    imgBgInput.addEventListener('change', async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const data = await resizeImageFile(file);
+      S.project.bgImage = data;
+      S.project.bgOpacity = S.project.bgOpacity ?? 0.75;
+      syncImagesUI(); replan(); flushSave();
+    });
+  }
+  const imgCenterInput = $('imgCenterFile');
+  if (imgCenterInput) {
+    imgCenterInput.addEventListener('change', async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const data = await resizeImageFile(file);
+      S.project.centerImage = data;
+      syncImagesUI(); replan(); flushSave();
+    });
+  }
+  const imgEffectInput = $('imgEffectFiles');
+  if (imgEffectInput) {
+    imgEffectInput.addEventListener('change', async e => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      const datas = await Promise.all(files.map(f => resizeImageFile(f)));
+      S.project.effectImages = (S.project.effectImages || []).concat(datas);
+      syncImagesUI(); replan(); flushSave();
+    });
+  }
   $('lyrics').addEventListener('input', e => { S.project.lyrics = e.target.value; replanSoon(260); });
   $('lyricLang').addEventListener('change', e => {
     remember();
