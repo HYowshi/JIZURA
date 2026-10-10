@@ -113,6 +113,19 @@ const whisperLanguages = {
   ru: 'russian', th: 'thai', ar: 'arabic', nl: 'dutch', tr: 'turkish',
 };
 
+// The app's language setting controls typography and classifies most Latin lyrics as English.
+// That is not a safe ASR hint: Vietnamese lyrics are Latin too, and forcing Whisper to English
+// makes it produce an unrelated transcript. Infer the lyric language independently.
+function lyricLanguage(lines, preferred) {
+  const text = lines.map(line => line.text || '').join(' ');
+  if (/[\u3040-\u30ff]/u.test(text)) return 'ja';
+  if (/[\uac00-\ud7af]/u.test(text)) return 'ko';
+  if (/[\u4e00-\u9fff]/u.test(text)) return /^zh-Hant/.test(preferred || '') ? 'zh-Hant' : 'zh-Hans';
+  // These letters are distinctive to Vietnamese; check before treating Latin text as English.
+  if (/[ăâđêôơưĂÂĐÊÔƠƯ]/u.test(text)) return 'vi';
+  return whisperLanguages[preferred] ? preferred : 'en';
+}
+
 async function whisperAudio(buffer) {
   const sr = 16000, frames = Math.max(1, Math.ceil(buffer.duration * sr));
   const ctx = new OfflineAudioContext(1, frames, sr);
@@ -258,7 +271,8 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
   const transcriber = await loadAsrPipeline(onProgress);
   if (onProgress) onProgress({ phase: 'audio' });
   const audio = await whisperAudio(buffer);
-  const language = whisperLanguages[lang] || undefined;
+  const detectedLang = lyricLanguage(lines, lang);
+  const language = whisperLanguages[detectedLang];
   let payload;
   try {
     payload = await transcriber(audio, {
@@ -282,11 +296,11 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
     const a = Number(w.timestamp && w.timestamp[0]);
     const b = w.timestamp && w.timestamp[1] != null ? Number(w.timestamp[1]) : duration;
     if (!isFinite(a) || !isFinite(b) || b <= a) continue;
-    for (const token of alignTokens(w.text, lang)) recognized.push({ text: token, key: alignNorm(token, lang), start: a, end: b, score: Number(w.score) || 0 });
+    for (const token of alignTokens(w.text, detectedLang)) recognized.push({ text: token, key: alignNorm(token, detectedLang), start: a, end: b, score: Number(w.score) || 0 });
   }
   if (onProgress) onProgress({ phase: 'align', progress: 1 });
   const heard = recognized.filter(x => x.key);
-  const spans = alignLyricLinesToHeard(lines, heard, lang);
+  const spans = alignLyricLinesToHeard(lines, heard, detectedLang);
   // Never invent times for lines the ASR could not anchor. Leave those lines intact for manual review.
   if (!spans.some(Boolean)) throw new Error('音声と歌詞を照合できませんでした。歌詞の言語設定を確認してください。');
   return spans.map((s, i) => {
