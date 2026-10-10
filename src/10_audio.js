@@ -71,6 +71,197 @@ J.analyzeAudio = async (file) => {
   };
 };
 
+/* Large-v3-Turbo runs in the browser through Transformers.js. The audio stays on-device;
+   only the reference lyrics are used to correct the recognition and attach line timings. */
+
+const ASR_MODEL = 'onnx-community/whisper-large-v3-turbo_timestamped';
+let asrModulePromise = null, asrPipelinePromise = null, asrPipelineDevice = null, asrForceWasm = false;
+async function loadAsrModule() {
+  if (!asrModulePromise) asrModulePromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+  return asrModulePromise;
+}
+async function loadAsrPipeline(onProgress) {
+  const { env, pipeline } = await loadAsrModule();
+  env.allowLocalModels = false;
+  env.useBrowserCache = true;
+  // WebGPU is faster where available; WASM remains a compatibility fallback.
+  let device = 'wasm';
+  try { if (!asrForceWasm && navigator.gpu && await navigator.gpu.requestAdapter()) device = 'webgpu'; } catch (e) {}
+  if (!asrPipelinePromise || asrPipelineDevice !== device) {
+    asrPipelineDevice = device;
+    asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
+      device, dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
+      progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+    }).catch(async error => {
+      if (device !== 'webgpu') throw error;
+      asrForceWasm = true;
+      asrPipelineDevice = 'wasm';
+      asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
+        device: 'wasm', dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
+        progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+      });
+      return asrPipelinePromise;
+    });
+  }
+  return asrPipelinePromise;
+}
+
+const whisperLanguages = {
+  ja: 'japanese', en: 'english', vi: 'vietnamese', ko: 'korean', id: 'indonesian',
+  'zh-Hans': 'chinese', 'zh-Hant': 'chinese', zh: 'chinese',
+  fr: 'french', de: 'german', es: 'spanish', it: 'italian', pt: 'portuguese',
+  ru: 'russian', th: 'thai', ar: 'arabic', nl: 'dutch', tr: 'turkish',
+};
+
+async function whisperAudio(buffer) {
+  const sr = 16000, frames = Math.max(1, Math.ceil(buffer.duration * sr));
+  const ctx = new OfflineAudioContext(1, frames, sr);
+  const mono = ctx.createBuffer(1, buffer.length, buffer.sampleRate), dst = mono.getChannelData(0);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const src = buffer.getChannelData(ch);
+    for (let i = 0; i < src.length; i++) dst[i] += src[i] / buffer.numberOfChannels;
+  }
+  const source = ctx.createBufferSource(); source.buffer = mono; source.connect(ctx.destination); source.start();
+  const resampled = await ctx.startRendering();
+  return { audio: resampled.getChannelData(0), sampling_rate: sr };
+}
+
+const alignNorm = (s, lang) => {
+  let x = String(s || '').normalize('NFC').toLocaleLowerCase();
+  if (lang === 'vi') x = x.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return x.replace(/[^\p{L}\p{N}]/gu, '');
+};
+function alignTokens(text, lang) {
+  const out = [];
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    try {
+      const seg = new Intl.Segmenter(lang || 'en', { granularity: 'word' });
+      for (const x of seg.segment(String(text || ''))) if (/[\p{L}\p{N}]/u.test(x.segment)) out.push(x.segment);
+      if (out.length) return out;
+    } catch (e) {}
+  }
+  const s = String(text || '');
+  if (/^(ja|zh)/.test(lang || '')) return Array.from(s).filter(c => /[\p{L}\p{N}]/u.test(c));
+  return s.match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function matchCost(a, b) {
+  if (a === b) return 0;
+  if (!a || !b) return 1.5;
+  // A short edit-distance check tolerates small ASR errors while avoiding loose phrase matches.
+  if (Math.max(a.length, b.length) <= 12) {
+    let p = Array.from({ length: b.length + 1 }, (_, i) => i), q = new Array(b.length + 1);
+    for (let i = 1; i <= a.length; i++) {
+      q[0] = i;
+      for (let j = 1; j <= b.length; j++) q[j] = Math.min(q[j - 1] + 1, p[j] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      [p, q] = [q, p];
+    }
+    const similarity = 1 - p[b.length] / Math.max(a.length, b.length);
+    if (similarity >= 0.65) return 0.45 + (1 - similarity) * 0.5;
+  }
+  return 1.5;
+}
+
+function alignWordTimes(ref, heard) {
+  const n = ref.length, m = heard.length;
+  if (!n || !m || n * m > 16000000) return new Array(n).fill(null);
+  const width = m + 1, back = new Uint8Array((n + 1) * width);
+  let prev = new Float32Array(width), cur = new Float32Array(width);
+  const INS = 0.65, DEL = 0.9;
+  for (let j = 1; j <= m; j++) { prev[j] = prev[j - 1] + INS; back[j] = 2; }
+  for (let i = 1; i <= n; i++) {
+    cur[0] = prev[0] + DEL; back[i * width] = 1;
+    for (let j = 1; j <= m; j++) {
+      const sub = prev[j - 1] + matchCost(ref[i - 1].key, heard[j - 1].key);
+      const del = prev[j] + DEL, ins = cur[j - 1] + INS;
+      const at = i * width + j;
+      if (sub <= del && sub <= ins) { cur[j] = sub; back[at] = 0; }
+      else if (del <= ins) { cur[j] = del; back[at] = 1; }
+      else { cur[j] = ins; back[at] = 2; }
+    }
+    [prev, cur] = [cur, prev];
+  }
+  const mapped = new Array(n).fill(null); let i = n, j = m;
+  while (i || j) {
+    const dir = back[i * width + j];
+    if (i && j && dir === 0) {
+      const c = matchCost(ref[i - 1].key, heard[j - 1].key);
+      if (c <= 0.95) mapped[i - 1] = heard[j - 1];
+      i--; j--;
+    } else if (i && (!j || dir === 1)) i--;
+    else if (j) j--;
+  }
+  return mapped;
+}
+
+J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
+  if (!buffer || !lines || !lines.length) throw new Error('曲と歌詞を読み込んでください');
+  if (onProgress) onProgress({ phase: 'model' });
+  const transcriber = await loadAsrPipeline(onProgress);
+  if (onProgress) onProgress({ phase: 'audio' });
+  const audio = await whisperAudio(buffer);
+  const language = whisperLanguages[lang] || undefined;
+  let payload;
+  try {
+    payload = await transcriber(audio, {
+      language, task: 'transcribe', return_timestamps: 'word',
+      chunk_length_s: 30, stride_length_s: 5,
+    });
+  } catch (e) {
+    if (asrPipelineDevice === 'webgpu') {
+      asrForceWasm = true;
+      asrPipelinePromise = null;
+      asrPipelineDevice = null;
+      const cpuTranscriber = await loadAsrPipeline(onProgress);
+      payload = await cpuTranscriber(audio, {
+        language, task: 'transcribe', return_timestamps: 'word',
+        chunk_length_s: 30, stride_length_s: 5,
+      });
+    } else throw e;
+  }
+  const duration = buffer.duration, recognized = [];
+  for (const w of payload.chunks || []) {
+    const a = Number(w.timestamp && w.timestamp[0]);
+    const b = w.timestamp && w.timestamp[1] != null ? Number(w.timestamp[1]) : duration;
+    if (!isFinite(a) || !isFinite(b) || b <= a) continue;
+    for (const token of alignTokens(w.text, lang)) recognized.push({ text: token, key: alignNorm(token, lang), start: a, end: b, score: Number(w.score) || 0 });
+  }
+  if (onProgress) onProgress({ phase: 'audio', progress: 1 });
+  const ref = [], ranges = [];
+  for (const line of lines) {
+    const tokens = alignTokens(line.text || '', lang), from = ref.length;
+    for (const text of tokens) ref.push({ text, key: alignNorm(text, lang), line: line.index });
+    ranges.push({ from, to: ref.length });
+  }
+  const heard = recognized.filter(x => x.key);
+  const matched = alignWordTimes(ref, heard);
+  const spans = ranges.map(({ from, to }) => {
+    const hit = matched.slice(from, to).filter(Boolean);
+    if (!hit.length) return null;
+    return { start: Math.min(...hit.map(x => x.start)), end: Math.max(...hit.map(x => x.end)), confidence: hit.length / Math.max(1, to - from) };
+  });
+  // Never invent times for lines the ASR could not anchor. Leave those lines intact for manual review.
+  if (!spans.some(Boolean)) throw new Error('音声と歌詞を照合できませんでした。歌詞の言語設定を確認してください。');
+  return spans.map((s, i) => {
+    if (!s) return null;
+    const start = Math.max(0, Math.min(duration, s.start));
+    const end = Math.min(duration, Math.max(start + 0.08, s.end));
+    return { start: +start.toFixed(2), end: +end.toFixed(2), confidence: s.confidence };
+  });
+};
+
+J.timedLyrics = (raw, lines, spans) => {
+  const rows = String(raw || '').replace(/\r/g, '').split('\n');
+  const stamp = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return `[${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}]`; };
+  const byRow = new Map();
+  lines.forEach((line, i) => { if (spans[i]) byRow.set(line.src, spans[i]); });
+  for (const [row, span] of byRow) {
+    const body = rows[row].trim().replace(/^(?:\[\d+:\d+(?:[.:]\d+)?\])*/, '').replace(/\s*\[\d+:\d+(?:[.:]\d+)?\]\s*$/, '').trim();
+    rows[row] = stamp(span.start) + body + stamp(span.end);
+  }
+  return rows.join('\n');
+};
+
 /* 16-bit PCM WAV of an AudioBuffer, cut / padded to `duration` seconds (the soundtrack next to an MP4 whose
    audio track some players cannot play, or when the browser has no audio encoder) */
 J.audioWav = (buffer, duration, offset = 0) => {

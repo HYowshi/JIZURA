@@ -1,6 +1,9 @@
 """English copy for the browser edition. The Japanese source stays authoritative."""
 
 BODY = {
+    'title="ブラウザー内で Whisper Large-v3-Turbo を実行し、入力した歌詞を基準に開始・終了時刻を付けます。初回はモデルをダウンロードします"': 'title="Run Whisper Large-v3-Turbo in your browser and time the lyrics you entered. The model downloads on first use"',
+    '音声認識はブラウザー内で行われ、曲は外部サーバーへ送信されません。初回は Whisper Large-v3-Turbo のモデル（約 760 MB）をダウンロードします。ダウンロード後はブラウザーのキャッシュを利用します。': 'Audio recognition runs in your browser; your song is not sent to an external server. The first use downloads the Whisper Large-v3-Turbo model (about 760 MB), which the browser caches for later use.',
+    '>歌詞を音声に合わせる</button>': '>Align lyrics to audio</button>',
     '1行に複数のカットがあるときは、カットが切り替わる瞬間に <span class="kbd">Tab</span> を押すと、その行のカットの開始時刻も合わせられます。': 'If a line has several cuts, press <span class="kbd">Tab</span> the moment the cut should change to time the cuts of that line too.',
     '<label>速さ <select id="tapRate" aria-label="タップ中の再生速度">': '<label>Speed <select id="tapRate" aria-label="Playback speed while tapping">',
     '<input type="checkbox" id="tapCount"> カウントダウン</label>': '<input type="checkbox" id="tapCount"> Count-in</label>',
@@ -182,6 +185,19 @@ BODY = {
 }
 
 UI = {
+    "'先に曲を読み込んでください'": "'Load a song first'",
+    "'歌詞を入力してください'": "'Enter lyrics first'",
+    "'歌詞を音声に合わせました（'": "'Lyrics aligned to audio ('",
+    "'行）'": "' lines)'",
+    "'。認識が不確かな行を確認してください'": "'. Review lines with uncertain recognition'",
+    "'歌詞を音声に合わせられませんでした: '": "'Could not align lyrics to audio: '",
+    "'ブラウザー内で Turbo を読み込み中…'": "'Loading Turbo in browser…'",
+    "'Turbo モデルをダウンロード中…'": "'Downloading Turbo model…'",
+    "'音声を解析中…'": "'Analyzing audio…'",
+    "'歌詞の時刻を整理中…'": "'Finishing lyric timing…'",
+    '`。${missed}行は時刻を推測せず、そのまま残しました`': '`. ${missed} lines had no match; left unchanged instead of guessing times`',
+    "'音声と歌詞を照合できませんでした。歌詞の言語設定を確認してください。'": "'Could not match the audio to the lyrics. Check the lyrics language setting.'",
+    "'曲と歌詞を読み込んでください'": "'Please load a song and lyrics'",
     '`前後の行と順番が入れ替わらないよう ${w.toFixed(2)} 秒にしました`': '`Set to ${w.toFixed(2)} s so the lines stay in order`',
     "'このカットの開始時刻（手動）。空にすると自動に戻ります'": "'Start of this cut (set by hand). Clear it to go back to automatic'",
     "'このカットの開始時刻（自動）。数値を入れると固定します'": "'Start of this cut (automatic). Type a time to fix it'",

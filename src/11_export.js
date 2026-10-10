@@ -104,7 +104,7 @@ J.lrcText = (project, lines, range) => {
   const tm = J.computeTiming(project, parsed, null);
   const rows = String(project.lyrics || '').replace(/\r/g, '').split('\n');
   const stamp = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = t - m * 60; return `[${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}]`; };
-  const clean = r => String(r || '').trim().replace(/^(\[\d+:\d+(?:[.:]\d+)?\])+/, '').trim();
+  const clean = r => String(r || '').trim().replace(/^(\[\d+:\d+(?:[.:]\d+)?\])+/, '').replace(/\s*\[\d+:\d+(?:[.:]\d+)?\]\s*$/, '').trim();
   const out = [];
   const ti = project.title || parsed.meta.ti, ar = project.artist || parsed.meta.ar;
   if (ti) out.push(`[ti:${ti}]`); if (ar) out.push(`[ar:${ar}]`); if (parsed.meta.al) out.push(`[al:${parsed.meta.al}]`);
@@ -113,7 +113,7 @@ J.lrcText = (project, lines, range) => {
     const L = parsed.lines[i];
     let txt = clean(rows[L.src]);
     if (L.interlude && !/^\[/.test(txt)) txt = '[間奏]';
-    out.push(stamp(tm.starts[i] - t0) + txt);
+    out.push(stamp(tm.starts[i] - t0) + txt + stamp(tm.ends[i] - t0));
   }
   return out.join('\n') + '\n';
 };

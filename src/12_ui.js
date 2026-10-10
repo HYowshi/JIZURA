@@ -810,6 +810,32 @@ function saveLrc() {
   const txt = J.lrcText(S.project, S.plan.lines, R ? { from: R.from, to: R.to, t0: r.t0 } : null);
   J.saveFile(baseName() + rangeSuffix() + '.lrc', new Blob([txt], { type: 'text/plain;charset=utf-8' }));
 }
+async function alignLyricsAudio() {
+  if (!S.audio || !S.project.lyrics.trim() || S.tap || S.exporting) {
+    toast(!S.audio ? '先に曲を読み込んでください' : '歌詞を入力してください'); return;
+  }
+  const button = $('btnAlignLrc'), original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'ブラウザー内で Turbo を読み込み中…';
+  try {
+    const parsed = J.parseLyrics(S.project.lyrics);
+    if (!parsed.lines.length) throw new Error('歌詞がありません');
+    const spans = await J.alignLyricsToAudio(S.audio.buffer, parsed.lines, S.plan.lang, info => {
+      if (info.phase === 'model') button.textContent = 'ブラウザー内で Turbo を読み込み中…';
+      else if (info.phase === 'download') button.textContent = 'Turbo モデルをダウンロード中…';
+      else if (info.phase === 'audio') button.textContent = '音声を解析中…';
+      else if (info.phase === 'audio') button.textContent = '歌詞の時刻を整理中…';
+    });
+    loadLrc(J.timedLyrics(S.project.lyrics, parsed.lines, spans));
+    const aligned = spans.filter(Boolean), avg = aligned.reduce((a, s) => a + s.confidence, 0) / Math.max(1, aligned.length);
+    const missed = spans.length - aligned.length;
+    toast('歌詞を音声に合わせました（' + aligned.length + '行）' + (missed ? `。${missed}行は時刻を推測せず、そのまま残しました` : avg < 0.45 ? '。認識が不確かな行を確認してください' : ''));
+  } catch (err) {
+    toast('歌詞を音声に合わせられませんでした: ' + (err && err.message ? err.message : err));
+  } finally {
+    button.disabled = false; button.textContent = original;
+  }
+}
 // 歌詞を消す: lyrics + everything tied to line numbers (times, per-line settings, export range); undoable
 function clearLyrics() {
   if (S.tap || S.exporting) return;
@@ -1889,6 +1915,7 @@ function bind() {
     if (S.project.lyrics.trim() && !window.confirm('今の歌詞を LRC の内容に置き換えます（行ごとの時刻・指定・書き出す範囲も消えます。「元に戻す」で戻せます）。よろしいですか？')) return;
     loadLrc(text);
   });
+  $('btnAlignLrc').addEventListener('click', alignLyricsAudio);
   ['btnLRC', 'eLRC'].forEach(id => $(id).addEventListener('click', saveLrc));
   $('btnReset').addEventListener('click', () => {
     const dlg = $('resetDlg');

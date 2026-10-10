@@ -42,6 +42,9 @@ STYLES = {
 }
 
 BODY = {
+    'title="ブラウザー内で Whisper Large-v3-Turbo を実行し、入力した歌詞を基準に開始・終了時刻を付けます。初回はモデルをダウンロードします"': 'title="Chạy Whisper Large-v3-Turbo ngay trong trình duyệt để căn thời gian theo lyrics đã nhập. Lần đầu sẽ tải model"',
+    '音声認識はブラウザー内で行われ、曲は外部サーバーへ送信されません。初回は Whisper Large-v3-Turbo のモデル（約 760 MB）をダウンロードします。ダウンロード後はブラウザーのキャッシュを利用します。': 'Nhận dạng âm thanh chạy trong trình duyệt; bài hát không được gửi lên máy chủ bên ngoài. Lần đầu dùng sẽ tải model Whisper Large-v3-Turbo (khoảng 760 MB), sau đó trình duyệt sẽ lưu cache để dùng lại.',
+    '>歌詞を音声に合わせる</button>': '>Căn lời theo âm thanh</button>',
     '1行に複数のカットがあるときは、カットが切り替わる瞬間に <span class="kbd">Tab</span> を押すと、その行のカットの開始時刻も合わせられます。': 'Nếu một dòng có nhiều cảnh, nhấn <span class="kbd">Tab</span> đúng lúc cảnh cần chuyển để canh cả thời điểm bắt đầu các cảnh của dòng đó.',
     '<label>速さ <select id="tapRate" aria-label="タップ中の再生速度">': '<label>Tốc độ <select id="tapRate" aria-label="Tốc độ phát khi nhấn">',
     '<input type="checkbox" id="tapCount"> カウントダウン</label>': '<input type="checkbox" id="tapCount"> Đếm ngược</label>',
@@ -272,6 +275,19 @@ BODY = {
 }
 
 UI = {
+    "'先に曲を読み込んでください'": "'Hãy chọn tệp âm thanh trước'",
+    "'歌詞を入力してください'": "'Hãy nhập lời bài hát trước'",
+    "'歌詞を音声に合わせました（'": "'Đã căn lời theo âm thanh ('",
+    "'行）'": "' dòng)'",
+    "'。認識が不確かな行を確認してください'": "'. Hãy kiểm tra các dòng nhận dạng chưa chắc'",
+    "'歌詞を音声に合わせられませんでした: '": "'Không thể căn lời theo âm thanh: '",
+    "'ブラウザー内で Turbo を読み込み中…'": "'Đang tải Turbo trong trình duyệt…'",
+    "'Turbo モデルをダウンロード中…'": "'Đang tải model Turbo…'",
+    "'音声を解析中…'": "'Đang phân tích âm thanh…'",
+    "'歌詞の時刻を整理中…'": "'Đang hoàn tất thời gian lời…'",
+    '`。${missed}行は時刻を推測せず、そのまま残しました`': '`. ${missed} dòng không khớp; được giữ nguyên, không tự đoán thời gian`',
+    "'音声と歌詞を照合できませんでした。歌詞の言語設定を確認してください。'": "'Không khớp được audio với lyrics. Hãy kiểm tra cài đặt ngôn ngữ lời bài hát.'",
+    "'曲と歌詞を読み込んでください'": "'Hãy chọn bài hát và nhập lời bài hát'",
     '`前後の行と順番が入れ替わらないよう ${w.toFixed(2)} 秒にしました`': '`Đã đặt ${w.toFixed(2)} giây để giữ thứ tự các dòng`',
     "'このカットの開始時刻（手動）。空にすると自動に戻ります'": "'Thời điểm bắt đầu cảnh này (thủ công). Xóa trống để về tự động'",
     "'このカットの開始時刻（自動）。数値を入れると固定します'": "'Thời điểm bắt đầu cảnh này (tự động). Nhập số để cố định'",

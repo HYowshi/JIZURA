@@ -61,14 +61,20 @@ J.parseLyrics = (raw) => {
     if (s0.startsWith('#')) continue;
     const mm = s0.match(/^\[(ti|ar|al|by|offset):(.*)\]$/i);
     if (mm) { meta[mm[1].toLowerCase()] = mm[2].trim(); continue; }
-    let s = s0; const times = [];
+    let s = s0; const times = []; let lrcEnd = null;
     let m;
     while ((m = s.match(/^\[(\d+):(\d+(?:[.:]\d+)?)\]/))) { times.push(+m[1] * 60 + parseFloat(m[2].replace(':', '.'))); s = s.slice(m[0].length); }
     s = s.trim();
+    // Optional end tag: [start]lyric[end]. Plain [start]lyric remains valid.
+    const endTag = s.match(/\[(\d+):(\d+(?:[.:]\d+)?)\]\s*$/);
+    if (endTag) {
+      lrcEnd = +endTag[1] * 60 + parseFloat(endTag[2].replace(':', '.'));
+      s = s.slice(0, endTag.index).trim();
+    }
     // 間奏: [間奏] / [間奏 8] (8 seconds) — also [interlude] [inst] [间奏] [간주]; no lyrics, only background and decorations
     const im = s.match(/^\[\s*(間奏|间奏|interlude|instrumental|inst|간주)(?:\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|秒|초)?)?\s*\]$/i);
     if (im) {
-      const base = { text: '', interlude: true, secs: im[2] ? parseFloat(im[2]) : null, note: null, impact: false, emph: [], manual: null, gapBefore: pendingGap, src: ri };
+      const base = { text: '', interlude: true, secs: im[2] ? parseFloat(im[2]) : null, note: null, impact: false, emph: [], manual: null, gapBefore: pendingGap, src: ri, lrcEnd };
       pendingGap = false;
       if (times.length) times.forEach(t => lines.push(Object.assign({}, base, { lrc: t })));
       else lines.push(Object.assign({}, base, { lrc: null }));
@@ -88,7 +94,7 @@ J.parseLyrics = (raw) => {
       s = manual.join(latin ? ' ' : '');
     }
     if (!s) continue;
-    const base = { text: s, note, impact, emph, manual, gapBefore: pendingGap, src: ri };
+    const base = { text: s, note, impact, emph, manual, gapBefore: pendingGap, src: ri, lrcEnd };
     pendingGap = false;
     if (times.length) times.forEach(t => lines.push(Object.assign({}, base, { lrc: t })));
     else lines.push(Object.assign({}, base, { lrc: null }));
@@ -250,6 +256,7 @@ J.computeTiming = (project, parsed, audio) => {
     i = j;
   }
   const ends = starts.map((s, i) => {
+    if (lines[i].lrcEnd != null && isFinite(lines[i].lrcEnd)) return Math.max(s + 0.35, lines[i].lrcEnd);
     if (i < starts.length - 1) return Math.max(s + 0.35, starts[i + 1]);
     const n = [...lines[i].text].length, L = lines[i];
     let d = L.interlude ? (L.secs > 0 ? L.secs : 4) : J.clamp(0.8 + n * 0.17, 1.5, 5.2) * (T.lineScale || 1);
@@ -350,7 +357,7 @@ J.plan = (project, audio) => {
       return;
     }
     const n = [...ln.text.replace(/\s+/g, '')].length;
-    const visEnd = Math.min(e, s + Math.max(3.6, n * 0.5 + 1.2));
+    const visEnd = ln.lrcEnd != null ? e : Math.min(e, s + Math.max(3.6, n * 0.5 + 1.2));
     const D = visEnd - s;
     plan.lines.push({ index: li, src: ln.src, lrc: ln.lrc, text: ln.text, start: s, end: e, visEnd, note: ln.note, impact: ln.impact, emph: ln.emph, chunks: null, seed: lineSeed });
     const chunks = ln.manual || (plan.lang === 'en' ? J.phraseChunks(J.chunkText(ln.text)) : J.chunkText(ln.text));
