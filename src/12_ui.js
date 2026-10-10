@@ -815,16 +815,22 @@ async function alignLyricsAudio() {
     toast(!S.audio ? '先に曲を読み込んでください' : '歌詞を入力してください'); return;
   }
   const button = $('btnAlignLrc'), original = button.textContent;
+  const progressWrap = $('asrProgressWrap'), progressBar = $('asrProgressBar'), progressLabel = $('asrProgressLabel');
   button.disabled = true;
+  progressWrap.hidden = false; progressBar.style.width = '0%'; progressLabel.textContent = '0%';
   button.textContent = 'ブラウザー内で Turbo を読み込み中…';
   try {
     const parsed = J.parseLyrics(S.project.lyrics);
     if (!parsed.lines.length) throw new Error('歌詞がありません');
     const spans = await J.alignLyricsToAudio(S.audio.buffer, parsed.lines, S.plan.lang, info => {
       if (info.phase === 'model') button.textContent = 'ブラウザー内で Turbo を読み込み中…';
-      else if (info.phase === 'download') button.textContent = 'Turbo モデルをダウンロード中…';
+      else if (info.phase === 'download') {
+        button.textContent = 'Turbo モデルをダウンロード中…';
+        const p = info.progress && Number.isFinite(info.progress.progress) ? info.progress.progress : null;
+        if (p != null) { const percent = Math.max(0, Math.min(100, p)); progressBar.style.width = percent + '%'; progressLabel.textContent = Math.round(percent) + '%'; }
+      } else if (info.phase === 'modelReady') { progressBar.style.width = '100%'; progressLabel.textContent = '100%'; }
       else if (info.phase === 'audio') button.textContent = '音声を解析中…';
-      else if (info.phase === 'audio') button.textContent = '歌詞の時刻を整理中…';
+      else if (info.phase === 'align') button.textContent = '歌詞の時刻を整理中…';
     });
     loadLrc(J.timedLyrics(S.project.lyrics, parsed.lines, spans));
     const aligned = spans.filter(Boolean), avg = aligned.reduce((a, s) => a + s.confidence, 0) / Math.max(1, aligned.length);
@@ -833,6 +839,7 @@ async function alignLyricsAudio() {
   } catch (err) {
     toast('歌詞を音声に合わせられませんでした: ' + (err && err.message ? err.message : err));
   } finally {
+    progressWrap.hidden = true;
     button.disabled = false; button.textContent = original;
   }
 }

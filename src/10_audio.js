@@ -91,14 +91,14 @@ async function loadAsrPipeline(onProgress) {
     asrPipelineDevice = device;
     asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
       device, dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
-      progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+      progress_callback: info => { if (onProgress) onProgress(info.status === 'ready' ? { phase: 'modelReady' } : { phase: 'download', progress: info }); },
     }).catch(async error => {
       if (device !== 'webgpu') throw error;
       asrForceWasm = true;
       asrPipelineDevice = 'wasm';
       asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
         device: 'wasm', dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
-        progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+        progress_callback: info => { if (onProgress) onProgress(info.status === 'ready' ? { phase: 'modelReady' } : { phase: 'download', progress: info }); },
       });
       return asrPipelinePromise;
     });
@@ -226,7 +226,7 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
     if (!isFinite(a) || !isFinite(b) || b <= a) continue;
     for (const token of alignTokens(w.text, lang)) recognized.push({ text: token, key: alignNorm(token, lang), start: a, end: b, score: Number(w.score) || 0 });
   }
-  if (onProgress) onProgress({ phase: 'audio', progress: 1 });
+  if (onProgress) onProgress({ phase: 'align', progress: 1 });
   const ref = [], ranges = [];
   for (const line of lines) {
     const tokens = alignTokens(line.text || '', lang), from = ref.length;

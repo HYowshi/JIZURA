@@ -69,6 +69,10 @@
           <button id="btnTap" title="曲を再生しながら各行の頭でタップ">タップで同期</button>
           <button id="btnAlignLrc" class="ghost" title="ブラウザー内で Whisper Large-v3-Turbo を実行し、入力した歌詞を基準に開始・終了時刻を付けます。初回はモデルをダウンロードします">歌詞を音声に合わせる</button>
         </div>
+        <div id="asrProgressWrap" class="asr-progress" hidden aria-live="polite">
+          <div class="progress"><i id="asrProgressBar"></i></div>
+          <span id="asrProgressLabel" class="muted">0%</span>
+        </div>
         <div class="fields pro-only">
           <label class="field">BPM<input id="bpm" type="number" min="0" max="300" step="0.1" placeholder="自動"></label>
           <label class="field">開始(秒)<input id="offset" type="number" min="0" step="0.05"></label>

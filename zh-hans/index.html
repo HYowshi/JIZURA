@@ -253,6 +253,10 @@ button.chip[aria-pressed=true] { border-color: var(--cyan); color: var(--cyan); 
 .font-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; }
 .progress { height: 6px; background: var(--raised2); border-radius: 3px; overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--amber)); }
+.asr-progress { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.asr-progress[hidden] { display: none; }
+.asr-progress .progress { flex: 1; min-width: 80px; }
+.asr-progress span { min-width: 38px; text-align: right; font-size: 11px; }
 .outbtns { display: grid; gap: 8px; margin-top: 12px; }
 .outbtns button { padding: 10px 12px; }
 .note { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line2); padding-left: 10px; margin-top: 12px; }
@@ -546,6 +550,10 @@ button.small.primary { padding: 4px 12px; }
           <label class="file" title="MP3、WAV、M4A 等">载入音乐<input id="audioFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"></label>
           <button id="btnTap" title="边播放音乐边在每行开头轻点">轻点同步</button>
           <button id="btnAlignLrc" class="ghost" title="在浏览器中运行 Whisper Large-v3-Turbo，并根据输入的歌词标注时间。首次使用时会下载模型">将歌词与音频对齐</button>
+        </div>
+        <div id="asrProgressWrap" class="asr-progress" hidden aria-live="polite">
+          <div class="progress"><i id="asrProgressBar"></i></div>
+          <span id="asrProgressLabel" class="muted">0%</span>
         </div>
         <div class="fields pro-only">
           <label class="field">BPM<input id="bpm" type="number" min="0" max="300" step="0.1" placeholder="自动"></label>
@@ -5386,14 +5394,14 @@ async function loadAsrPipeline(onProgress) {
     asrPipelineDevice = device;
     asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
       device, dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
-      progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+      progress_callback: info => { if (onProgress) onProgress(info.status === 'ready' ? { phase: 'modelReady' } : { phase: 'download', progress: info }); },
     }).catch(async error => {
       if (device !== 'webgpu') throw error;
       asrForceWasm = true;
       asrPipelineDevice = 'wasm';
       asrPipelinePromise = pipeline('automatic-speech-recognition', ASR_MODEL, {
         device: 'wasm', dtype: { encoder_model: 'q4', decoder_model_merged: 'q4' },
-        progress_callback: info => { if (onProgress) onProgress({ phase: 'download', progress: info }); },
+        progress_callback: info => { if (onProgress) onProgress(info.status === 'ready' ? { phase: 'modelReady' } : { phase: 'download', progress: info }); },
       });
       return asrPipelinePromise;
     });
@@ -5521,7 +5529,7 @@ J.alignLyricsToAudio = async (buffer, lines, lang, onProgress) => {
     if (!isFinite(a) || !isFinite(b) || b <= a) continue;
     for (const token of alignTokens(w.text, lang)) recognized.push({ text: token, key: alignNorm(token, lang), start: a, end: b, score: Number(w.score) || 0 });
   }
-  if (onProgress) onProgress({ phase: 'audio', progress: 1 });
+  if (onProgress) onProgress({ phase: 'align', progress: 1 });
   const ref = [], ranges = [];
   for (const line of lines) {
     const tokens = alignTokens(line.text || '', lang), from = ref.length;
@@ -37447,16 +37455,22 @@ async function alignLyricsAudio() {
     toast(!S.audio ? '请先导入音频' : '请输入歌词'); return;
   }
   const button = $('btnAlignLrc'), original = button.textContent;
+  const progressWrap = $('asrProgressWrap'), progressBar = $('asrProgressBar'), progressLabel = $('asrProgressLabel');
   button.disabled = true;
+  progressWrap.hidden = false; progressBar.style.width = '0%'; progressLabel.textContent = '0%';
   button.textContent = '正在浏览器中加载 Turbo…';
   try {
     const parsed = J.parseLyrics(S.project.lyrics);
     if (!parsed.lines.length) throw new Error('歌詞がありません');
     const spans = await J.alignLyricsToAudio(S.audio.buffer, parsed.lines, S.plan.lang, info => {
       if (info.phase === 'model') button.textContent = '正在浏览器中加载 Turbo…';
-      else if (info.phase === 'download') button.textContent = '正在下载 Turbo 模型…';
+      else if (info.phase === 'download') {
+        button.textContent = '正在下载 Turbo 模型…';
+        const p = info.progress && Number.isFinite(info.progress.progress) ? info.progress.progress : null;
+        if (p != null) { const percent = Math.max(0, Math.min(100, p)); progressBar.style.width = percent + '%'; progressLabel.textContent = Math.round(percent) + '%'; }
+      } else if (info.phase === 'modelReady') { progressBar.style.width = '100%'; progressLabel.textContent = '100%'; }
       else if (info.phase === 'audio') button.textContent = '正在分析音频…';
-      else if (info.phase === 'audio') button.textContent = '正在整理歌词时间…';
+      else if (info.phase === 'align') button.textContent = '正在整理歌词时间…';
     });
     loadLrc(J.timedLyrics(S.project.lyrics, parsed.lines, spans));
     const aligned = spans.filter(Boolean), avg = aligned.reduce((a, s) => a + s.confidence, 0) / Math.max(1, aligned.length);
@@ -37465,6 +37479,7 @@ async function alignLyricsAudio() {
   } catch (err) {
     toast('无法将歌词与音频对齐：' + (err && err.message ? err.message : err));
   } finally {
+    progressWrap.hidden = true;
     button.disabled = false; button.textContent = original;
   }
 }
